@@ -230,12 +230,51 @@ def _extract_route_info(scored_routes: List[Dict]) -> Dict:
     coords = best.get("geometry", {}).get("coordinates", [])
     nodes  = [{"lat": c[1], "lon": c[0]} for c in coords]   # OSRM: [lon, lat]
 
+    factors_data = best.get("factors", {})
+    news_items   = best.get("impacting_news", [])
+
+    tf = factors_data.get("avg_traffic_multiplier", 1.0)
+    if tf > 2.0:
+        traffic_str = f"heavy congestion (traffic delay ×{tf:.2f})"
+    elif tf > 1.3:
+        traffic_str = f"moderate congestion (traffic delay ×{tf:.2f})"
+    elif tf > 1.05:
+        traffic_str = f"slight congestion (traffic delay ×{tf:.2f})"
+    else:
+        traffic_str = "clear roads"
+
+    wf = factors_data.get("avg_weather_speed_factor", 1.0)
+    if wf < 0.6:
+        weather_str = f"severe weather slowing traffic to {round(wf*100)}% of normal speed"
+    elif wf < 0.85:
+        weather_str = f"adverse weather (speed reduced to {round(wf*100)}%)"
+    elif wf < 0.97:
+        weather_str = f"minor weather impact (speed at {round(wf*100)}%)"
+    else:
+        weather_str = "good weather"
+
+    news_list = []
+    if news_items:
+        for ev in news_items:
+            title = ev.get("title") or ev.get("event_type") or "Unknown event"
+            lat = ev.get("center_lat", "unknown")
+            lon = ev.get("center_lon", "unknown")
+            news_list.append(f"\"{title}\" at lat: {lat}, lon: {lon}")
+    else:
+        news_list = ["no impacting news events"]
+
+    human_factors = {
+        "traffic": traffic_str,
+        "weather": weather_str,
+        "news": news_list
+    }
+
     return {
         "nodes":         nodes,
         "reason":        best.get("selection_reason", ""),
         "winner_reason": best.get("winner_reason", ""),
         "news":          best.get("impacting_news", []),
-        "factors":       best.get("factors", {}),
+        "factors":       human_factors,
         "duration_min":  best.get("estimated_duration_min"),
         "distance_m":    best.get("distance_m"),
     }
