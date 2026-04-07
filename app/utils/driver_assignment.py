@@ -204,10 +204,11 @@ def _select_minimum_drivers(
 #  ROUTE BUILDER  — uses get_best_route for full scoring context
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _extract_route_info(scored_routes: List[Dict]) -> Dict:
+def _extract_route_info(scored_routes: List[Dict]) -> List[Dict]:
     """
-    From a list of scored routes (get_best_route output), extract:
-      - nodes     : [{lat, lon}, …]  (geometry of the best route)
+    From a list of scored routes (get_best_route output), extract for ALL routes:
+      - route_rank: rank of the route (1 is best)
+      - nodes     : [{lat, lon}, …]  (geometry of the route)
       - reason    : selection_reason string
       - winner    : winner_reason string
       - news      : impacting_news list
@@ -216,7 +217,8 @@ def _extract_route_info(scored_routes: List[Dict]) -> Dict:
       - distance  : distance_m
     """
     if not scored_routes:
-        return {
+        return [{
+            "route_rank":     None,
             "nodes":          [],
             "reason":         "No route could be computed.",
             "winner_reason":  "",
@@ -224,60 +226,65 @@ def _extract_route_info(scored_routes: List[Dict]) -> Dict:
             "factors":        {},
             "duration_min":   None,
             "distance_m":     None,
+        }]
+
+    extracted_routes = []
+
+    for route in scored_routes:
+        coords = route.get("geometry", {}).get("coordinates", [])
+        nodes  = [{"lat": c[1], "lon": c[0]} for c in coords]   # OSRM: [lon, lat]
+
+        factors_data = route.get("factors", {})
+        news_items   = route.get("impacting_news", [])
+
+        tf = factors_data.get("avg_traffic_multiplier", 1.0)
+        if tf > 2.0:
+            traffic_str = f"heavy congestion (traffic delay ×{tf:.2f})"
+        elif tf > 1.3:
+            traffic_str = f"moderate congestion (traffic delay ×{tf:.2f})"
+        elif tf > 1.05:
+            traffic_str = f"slight congestion (traffic delay ×{tf:.2f})"
+        else:
+            traffic_str = "clear roads"
+
+        wf = factors_data.get("avg_weather_speed_factor", 1.0)
+        if wf < 0.6:
+            weather_str = f"severe weather slowing traffic to {round(wf*100)}% of normal speed"
+        elif wf < 0.85:
+            weather_str = f"adverse weather (speed reduced to {round(wf*100)}%)"
+        elif wf < 0.97:
+            weather_str = f"minor weather impact (speed at {round(wf*100)}%)"
+        else:
+            weather_str = "good weather"
+
+        news_list = []
+        if news_items:
+            for ev in news_items:
+                title = ev.get("title") or ev.get("event_type") or "Unknown event"
+                lat = ev.get("center_lat", "unknown")
+                lon = ev.get("center_lon", "unknown")
+                news_list.append(f"\"{title}\" at lat: {lat}, lon: {lon}")
+        else:
+            news_list = ["no impacting news events"]
+
+        human_factors = {
+            "traffic": traffic_str,
+            "weather": weather_str,
+            "news": news_list
         }
 
-    best   = scored_routes[0]
-    coords = best.get("geometry", {}).get("coordinates", [])
-    nodes  = [{"lat": c[1], "lon": c[0]} for c in coords]   # OSRM: [lon, lat]
+        extracted_routes.append({
+            "route_rank":    route.get("route_rank"),
+            "nodes":         nodes,
+            "reason":        route.get("selection_reason", ""),
+            "winner_reason": route.get("winner_reason", ""),
+            "news":          route.get("impacting_news", []),
+            "factors":       human_factors,
+            "duration_min":  route.get("estimated_duration_min"),
+            "distance_m":    route.get("distance_m"),
+        })
 
-    factors_data = best.get("factors", {})
-    news_items   = best.get("impacting_news", [])
-
-    tf = factors_data.get("avg_traffic_multiplier", 1.0)
-    if tf > 2.0:
-        traffic_str = f"heavy congestion (traffic delay ×{tf:.2f})"
-    elif tf > 1.3:
-        traffic_str = f"moderate congestion (traffic delay ×{tf:.2f})"
-    elif tf > 1.05:
-        traffic_str = f"slight congestion (traffic delay ×{tf:.2f})"
-    else:
-        traffic_str = "clear roads"
-
-    wf = factors_data.get("avg_weather_speed_factor", 1.0)
-    if wf < 0.6:
-        weather_str = f"severe weather slowing traffic to {round(wf*100)}% of normal speed"
-    elif wf < 0.85:
-        weather_str = f"adverse weather (speed reduced to {round(wf*100)}%)"
-    elif wf < 0.97:
-        weather_str = f"minor weather impact (speed at {round(wf*100)}%)"
-    else:
-        weather_str = "good weather"
-
-    news_list = []
-    if news_items:
-        for ev in news_items:
-            title = ev.get("title") or ev.get("event_type") or "Unknown event"
-            lat = ev.get("center_lat", "unknown")
-            lon = ev.get("center_lon", "unknown")
-            news_list.append(f"\"{title}\" at lat: {lat}, lon: {lon}")
-    else:
-        news_list = ["no impacting news events"]
-
-    human_factors = {
-        "traffic": traffic_str,
-        "weather": weather_str,
-        "news": news_list
-    }
-
-    return {
-        "nodes":         nodes,
-        "reason":        best.get("selection_reason", ""),
-        "winner_reason": best.get("winner_reason", ""),
-        "news":          best.get("impacting_news", []),
-        "factors":       human_factors,
-        "duration_min":  best.get("estimated_duration_min"),
-        "distance_m":    best.get("distance_m"),
-    }
+    return extracted_routes
 
 
 
