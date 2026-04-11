@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, status
-from api.schemas import AssignRequest, AssignResponse
-from utils.driver_assignment import assign_drivers
+from app.api.schemas import AssignRequest, AssignResponse
+from app.utils.driver_assignment import assign_drivers
 from datetime import datetime
 
 router = APIRouter(prefix="/api/v1", tags=["assignments"])

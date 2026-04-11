@@ -2,13 +2,16 @@
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Use the credentials from your friend's config file
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://bkv:globalsupplychain@15.206.160.22:5432/supplychain")
 
 # Map tracking/traffic/weather API keys
-TOMTOM_API_KEY = os.getenv("TOMTOM_API_KEY", "DPKc8wTW9olXLIUPZt3r4jmh5P6caGXX")
-WEATHER_API_KEY = os.getenv("WEATHER_API_KEY", "a2226e1a74aa4136b2162252262803")
+TOMTOM_API_KEY = os.getenv("TOMTOM_API_KEY")
+WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
 # psycopg2 needs pure postgresql connection string, removing the "+psycopg2" part if present
 def get_psycopg2_url(url: str) -> str:

@@ -13,9 +13,27 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 import math
-from typing import List, Dict, Tuple, Optional
-from core.config import get_db_connection
-from utils.smart_routing import get_best_route
+import json as _json
+from typing import List, Dict, Tuple, Optional, Any
+from app.core.config import get_db_connection
+from app.utils.smart_routing import get_best_route
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  JSON SANITY HELPER  — PostgreSQL jsonb rejects Infinity / NaN
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _sanitize_for_json(obj: Any) -> Any:
+    """Recursively replace float('inf'), float('-inf'), float('nan') with None."""
+    if isinstance(obj, float):
+        if math.isinf(obj) or math.isnan(obj):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_for_json(i) for i in obj]
+    return obj
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -38,9 +56,15 @@ def _fetch_route(route_id: str) -> Optional[Dict]:
             )
             row = cur.fetchone()
             return dict(row) if row else None
+    except Exception as e:
+        print(f"Error fetching route {route_id}: {e}")
+        return None
     finally:
         if conn:
-            conn.close()
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def _fetch_free_drivers() -> List[Dict]:
@@ -84,9 +108,15 @@ def _fetch_free_drivers() -> List[Dict]:
                     if not driver_dict.get("work_done"):
                         free_drivers.append(driver_dict)
             return free_drivers
+    except Exception as e:
+        print(f"Error fetching free drivers: {e}")
+        return []
     finally:
         if conn:
-            conn.close()
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def _insert_assignment(
@@ -99,7 +129,6 @@ def _insert_assignment(
     best_route:        dict,
 ) -> str:
     conn = None
-    import json
     try:
         conn = get_db_connection()
         with conn.cursor() as cur:
@@ -135,15 +164,21 @@ def _insert_assignment(
                     str(route_id),
                     route_type,
                     float(assigned_quantity),
-                    json.dumps(best_route, default=str),
+                    _json.dumps(_sanitize_for_json(best_route), default=str),
                 ),
             )
             row = cur.fetchone()
             conn.commit()
             return str(row["id"])
+    except Exception as e:
+        print(f"Error inserting assignment for driver {driver_id}: {e}")
+        raise
     finally:
         if conn:
-            conn.close()
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -300,11 +335,17 @@ def assign_drivers(route_id: str) -> Dict:
     """
 
     # ── 1. Fetch route ────────────────────────────────────────────────────────
-    route = _fetch_route(route_id)
+    try:
+        route = _fetch_route(route_id)
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Database connection error: {e}",
+        }
     if not route:
         return {
             "success": False,
-            "message": f"Route '{route_id}' not found in the database.",
+            "message": f"Route '{route_id}' not found in the database (or DB unreachable).",
         }
 
     src_lat      = float(route["src_lat"])
